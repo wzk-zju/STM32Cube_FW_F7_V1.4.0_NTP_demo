@@ -1,12 +1,12 @@
 LwIP_NTP_Client_Netconn_RTOS Application
   
-This demo is aimed to show how to synchronize system time from internet by NTP protocol.This demo doesn't implement complex algrithm,just use the feedback from one server to update local time.
+This STM32F746ZG Nucleo demo synchronizes its RTC with one NTP server over UDP port 123. It is a simple client, not a full NTP clock discipline implementation.
 
-This demo use DNS to get the IP address of NTP server, if it fails,a staic IP address will be used.
+The client resolves the server name with DNS and falls back to the static IP address in ntp_client.h if DNS fails.
 
-Configure NTP server in ntp_server_list[].
+Configure the server name in ntp_client.c and the fallback IP in ntp_client.h.
 
-When get response from NTP server, use Transmit_Timestamp to update RTC
+The client sends T1, reads T2/T3 and records T4, then calculates the clock offset. It validates the response before updating the RTC. Failed requests leave the RTC unchanged and are retried after 60 seconds. Receive timeout is 3 seconds.
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

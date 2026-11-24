@@ -57,6 +57,7 @@
 #include "app_ethernet.h"
 #include "lwip/dns.h" //@sz
 #include "time.h"
+#include <string.h>
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
 
@@ -78,8 +79,8 @@ static void DNS_client_init(void);//@sz
 static void RTC_Init(void);
 static void RTC_CalendarConfig(void);
 void RTC_CalendarShow(void);
-void RTC_CalendarUpdate(struct tm * newtime);
-void RTC_GetTime(struct tm * localtime);
+int RTC_CalendarUpdate(const struct tm *newtime);
+int RTC_GetTime(struct tm *localtime, uint32_t *fraction);
 extern void ntp_client_init(void);
 /* Private functions ---------------------------------------------------------*/
 
@@ -270,15 +271,25 @@ void RTC_CalendarShow(void)
   printf("date: %2d-%2d-%2d\n", sdatestructureget.Month, sdatestructureget.Date, 2000 + sdatestructureget.Year);
 }
 
-void RTC_GetTime(struct tm * localtime)
+int RTC_GetTime(struct tm *localtime, uint32_t *fraction)
 {
   RTC_DateTypeDef sdatestructureget;
   RTC_TimeTypeDef stimestructureget;
 
+  if (localtime == NULL || fraction == NULL) {
+    return 0;
+  }
+  memset(localtime, 0, sizeof(*localtime));
+  localtime->tm_isdst = 0;
+
   /* Get the RTC current Time */
-  HAL_RTC_GetTime(&RtcHandle, &stimestructureget, RTC_FORMAT_BIN);
+  if (HAL_RTC_GetTime(&RtcHandle, &stimestructureget, RTC_FORMAT_BIN) != HAL_OK) {
+    return 0;
+  }
   /* Get the RTC current Date */
-  HAL_RTC_GetDate(&RtcHandle, &sdatestructureget, RTC_FORMAT_BIN);
+  if (HAL_RTC_GetDate(&RtcHandle, &sdatestructureget, RTC_FORMAT_BIN) != HAL_OK) {
+    return 0;
+  }
 
   localtime->tm_year = sdatestructureget.Year +2000 - 1900;
   localtime->tm_mon = sdatestructureget.Month - 1;
@@ -287,6 +298,13 @@ void RTC_GetTime(struct tm * localtime)
   localtime->tm_hour = stimestructureget.Hours;
   localtime->tm_min = stimestructureget.Minutes;
   localtime->tm_sec = stimestructureget.Seconds;
+  if (stimestructureget.SubSeconds > stimestructureget.SecondFraction) {
+    return 0;
+  }
+  *fraction = (uint32_t)(((uint64_t)(stimestructureget.SecondFraction -
+                     stimestructureget.SubSeconds) << 32) /
+                     (stimestructureget.SecondFraction + 1U));
+  return 1;
 }
 
 /**
@@ -294,7 +312,7 @@ void RTC_GetTime(struct tm * localtime)
   * @param  newtime. pointer to newtime
   * @retval None
   */
-void RTC_CalendarUpdate(struct tm * newtime)
+int RTC_CalendarUpdate(const struct tm *newtime)
 {
   RTC_DateTypeDef sdatestructure;
   RTC_TimeTypeDef stimestructure;
@@ -304,12 +322,13 @@ void RTC_CalendarUpdate(struct tm * newtime)
   sdatestructure.Year = newtime->tm_year+1900-2000;
   sdatestructure.Month = newtime->tm_mon +1;
   sdatestructure.Date = newtime->tm_mday;
-  sdatestructure.WeekDay = newtime->tm_wday;
+  /* C uses Sunday=0; STM32 HAL uses Sunday=7. */
+  sdatestructure.WeekDay = (newtime->tm_wday == 0) ?
+                           RTC_WEEKDAY_SUNDAY : newtime->tm_wday;
   
   if(HAL_RTC_SetDate(&RtcHandle,&sdatestructure,RTC_FORMAT_BIN) != HAL_OK)
   {
-    /* Initialization Error */
-    while(1) {};
+    return 0;
   }
 
   /*##-2- Configure the Time #################################################*/
@@ -322,12 +341,12 @@ void RTC_CalendarUpdate(struct tm * newtime)
 
   if (HAL_RTC_SetTime(&RtcHandle, &stimestructure, RTC_FORMAT_BIN) != HAL_OK)
   {
-    /* Initialization Error */
-    while(1) {};
+    return 0;
   }
 
   /*##-3- Writes a data in a RTC Backup data Register1 #######################*/
   HAL_RTCEx_BKUPWrite(&RtcHandle, RTC_BKP_DR1, 0x32F2);  
+  return 1;
 }
 
 /**
